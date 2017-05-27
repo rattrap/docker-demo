@@ -1,7 +1,7 @@
 - hosts: all
   vars:
-    managers: 3
-    workers: 3
+    managers: 2
+    workers: 1
   tasks:
     - name: Creating manager machines
       shell: |
@@ -51,3 +51,16 @@
             $(docker-machine ip manager1)"
         fi
       with_sequence: start=1 end={{ workers }}
+    - name: Adding Portainer
+      shell: |
+        docker-machine ssh manager1 "docker service inspect portainer"
+        if [[ $? -eq 1 ]]; then
+          docker-machine ssh manager1 \
+            "docker service create \
+              --name portainer \
+              --publish 9000:9000 \
+              --constraint 'node.role == manager' \
+              --mount type=bind,src=//var/run/docker.sock,dst=/var/run/docker.sock \
+              portainer/portainer \
+              -H unix:///var/run/docker.sock"
+        fi
