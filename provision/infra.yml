@@ -1,0 +1,53 @@
+- hosts: all
+  vars:
+    managers: 3
+    workers: 3
+  tasks:
+    - name: Creating manager machines
+      shell: |
+        if [[ -z "$(docker-machine ls | grep manager{{ item }})" ]]; then
+          docker-machine create -d virtualbox manager{{ item }}
+        fi
+      with_sequence: start=1 end={{ managers }}
+    - name: Creating worker machines
+      shell: |
+        if [[ -z "$(docker-machine ls | grep worker{{ item }})" ]]; then
+          docker-machine create -d virtualbox worker{{ item }}
+        fi
+      with_sequence: start=1 end={{ workers }}
+    - name: Initialize swarm mode and create a manager
+      shell: |
+        docker-machine ssh manager1 "docker swarm join-token manager -q"
+        if [[ $? -eq 1 ]]; then
+          docker-machine ssh manager1 "docker swarm init --listen-addr $(docker-machine ip manager1) --advertise-addr $(docker-machine ip manager1)"
+        fi
+    - name: Getting manager token
+      shell: docker-machine ssh manager1 "docker swarm join-token manager -q"
+      register: manager_token
+    - name: Getting worker token
+      shell: docker-machine ssh manager1 "docker swarm join-token worker -q"
+      register: worker_token
+    - name: Adding swarm managers
+      shell: |
+        docker-machine ssh manager1 "docker node inspect manager{{ item }}"
+        if [[ $? -eq 1 ]]; then
+          docker-machine ssh manager{{ item }} \
+            "docker swarm join \
+            --token {{ manager_token.stdout }} \
+            --listen-addr $(docker-machine ip manager{{ item }}) \
+            --advertise-addr $(docker-machine ip manager{{ item }}) \
+            $(docker-machine ip manager1)"
+        fi
+      with_sequence: start=2 end={{ managers }}
+    - name: Adding swarm workers
+      shell: |
+        docker-machine ssh manager1 "docker node inspect worker{{ item }}"
+        if [[ $? -eq 1 ]]; then
+          docker-machine ssh worker{{ item }} \
+            "docker swarm join \
+            --token {{ worker_token.stdout }} \
+            --listen-addr $(docker-machine ip worker{{ item }}) \
+            --advertise-addr $(docker-machine ip worker{{ item }}) \
+            $(docker-machine ip manager1)"
+        fi
+      with_sequence: start=1 end={{ workers }}
